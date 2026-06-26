@@ -1,0 +1,6 @@
+requests
+Pillow
+python-dotenv
+piexif
+geopy
+python-slugify

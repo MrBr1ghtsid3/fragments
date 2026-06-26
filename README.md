@@ -4,12 +4,12 @@ I like to take a lot of photos! I am not very good at it, but I do it nonetheles
 
 This tool I am working on with Claude should help me get them onto my WordPress site in the form of "instagram-lite" feed version, without thinking about it much.
 
-You give it a caption and an image file. It compresses the image to WebP, strips all EXIF data (including GPS), uploads it, creates a post in a category of chocie, and skips the subscriber email notification (by default). That's it.
+You give it a caption and an image file. It compresses the image to WebP, strips all EXIF data (including GPS), uploads it, creates a post in a category of choice, and skips the subscriber email notification (by default). That's it.
 
 ## requirements
 
 ```bash
-pip install requests pillow python-dotenv
+pip install -r requirements.txt
 ```
 
 ## setup
@@ -37,7 +37,23 @@ Register your app and get a client ID and secret at [developer.wordpress.com/app
 python wp_uploader.py "Caption for the photo" photo.jpg
 # optionally, pass different alt text as a third argument
 python wp_uploader.py "Caption" photo.jpg "Alt text for screen readers"
+# dry run — parses EXIF, prints what would be posted, skips the upload
+python wp_uploader.py "Caption" photo.jpg --dry-run
 ```
+
+## what the EXIF footer looks like
+
+The script reads camera metadata before compressing the image (compression strips it). It reverse-geocodes the GPS coordinates to a place name, then appends a small footer below the caption. The GPS data is only used as text in the footer — it is not embedded in the uploaded file.
+
+**Full EXIF (GPS + camera + optics):**
+
+> *📍 Tutrakan, Bulgaria · 10 June 2026, 13:31 · Nothing Phone (2a) Plus · f/1.87 · 1/3078s · 5.56mm · ISO 103*
+
+**Partial EXIF (no GPS, datetime from file):**
+
+> *10 June 2026, 13:31 · f/1.87 · 1/3078s · ISO 103*
+
+**No EXIF at all** (AI-generated image, screenshot): no footer is appended.
 
 ## why OAuth2 and not Basic Auth
 
