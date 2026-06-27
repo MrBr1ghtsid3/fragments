@@ -6,6 +6,8 @@ This tool I am working on with Claude should help me get them onto my WordPress 
 
 You give it a caption and an image file. It compresses the image to WebP, strips all EXIF data (including GPS), uploads it, creates a post in a category of choice, and skips the subscriber email notification (by default). That's it.
 
+The goal is to have this used as the engine of a personal android application. Work in progres!
+
 ## requirements
 
 ```bash
