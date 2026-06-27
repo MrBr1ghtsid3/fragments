@@ -391,10 +391,35 @@ def upload_media(token, buf, filename, alt_text):
     )
     if r.status_code != 201:
         sys.exit(f"Media upload failed (HTTP {r.status_code}): {r.text[:300]}")
-    media_id = r.json()["id"]
+    data     = r.json()
+    media_id = data["id"]
+    full_url = data["source_url"]
+    sizes    = data.get("media_details", {}).get("sizes", {})
+    medium_url = (
+        sizes.get("large", sizes.get("medium", {})).get("source_url") or full_url
+    )
     requests.post(f"{API}/media/{media_id}", headers=auth_headers(token),
                   json={"alt_text": alt_text})
-    return media_id
+    return media_id, full_url, medium_url
+
+
+def build_figure_block(media_id, medium_url, full_url, alt_text):
+    """
+    Emit a wp:html block containing the CSS-only lightbox figure.
+    Thumbnail links to #frag-{media_id}; the overlay closes via href="#!".
+    """
+    safe_alt = html.escape(alt_text)
+    inner = (
+        '<figure class="fragment-figure">\n'
+        f'  <a href="#frag-{media_id}" class="fragment-thumb">\n'
+        f'    <img src="{medium_url}" alt="{safe_alt}" loading="lazy" />\n'
+        '  </a>\n'
+        f'  <a href="#!" id="frag-{media_id}" class="fragment-lightbox" aria-hidden="true">\n'
+        f'    <img src="{full_url}" alt="" />\n'
+        '  </a>\n'
+        '</figure>'
+    )
+    return _block("html", {}, inner)
 
 
 def get_or_create_category(token, name):
@@ -407,11 +432,11 @@ def get_or_create_category(token, name):
     return r.json()["id"]
 
 
-def create_fragment(token, media_id, blurb, category_id, exif_footer=""):
+def create_fragment(token, media_id, blurb, category_id, figure_block="", exif_footer=""):
     blurb_block = _block("paragraph", {}, f"<p>{html.escape(blurb)}</p>")
     payload = {
         "title":          "",
-        "content":        blurb_block + exif_footer,
+        "content":        figure_block + "\n\n" + blurb_block + exif_footer,
         "status":         "publish",
         "categories":     [category_id],
         "featured_media": media_id,
@@ -435,6 +460,8 @@ def main():
     parser.add_argument("alt_text", nargs="?", help="Alt text for the image (defaults to blurb)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Parse EXIF, print what would be posted, then exit without uploading")
+    parser.add_argument("--keep", action="store_true",
+                        help="Keep the original image file after a successful upload")
     args = parser.parse_args()
 
     if not os.path.exists(args.image):
@@ -472,12 +499,14 @@ def main():
     exif_footer = build_exif_footer(exif_meta, display_name)
 
     if args.dry_run:
-        blurb_block = _block("paragraph", {}, f"<p>{html.escape(args.blurb)}</p>")
+        blurb_block    = _block("paragraph", {}, f"<p>{html.escape(args.blurb)}</p>")
+        figure_preview = build_figure_block("[MEDIA_ID]", "[MEDIUM_URL]", "[FULL_URL]", alt_text)
         print("\n── DRY RUN ──────────────────────────────────────────────")
         print(f"Image:     {args.image}")
         print(f"Filename:  {filename}")
         print(f"Alt text:  {alt_text}")
-        print(f"\nPost content:\n{blurb_block}{exif_footer}")
+        print(f"\nPost content:\n{figure_preview}\n\n{blurb_block}{exif_footer}")
+        print("\n(Figure URLs are placeholders — real values come from the upload response.)")
         print("─────────────────────────────────────────────────────────")
         return
 
@@ -491,13 +520,25 @@ def main():
 
     # 7. Upload
     print("Uploading media...")
-    media_id = upload_media(token, buf, filename, alt_text)
-    print(f"  media id: {media_id}")
+    media_id, full_url, medium_url = upload_media(token, buf, filename, alt_text)
+    print(f"  media id:   {media_id}")
+    print(f"  medium url: {medium_url}")
 
     # 8. Create post
+    figure_block = build_figure_block(media_id, medium_url, full_url, alt_text)
     cat_id = get_or_create_category(token, FRAGMENTS_CATEGORY)
-    link   = create_fragment(token, media_id, args.blurb, cat_id, exif_footer)
+    link   = create_fragment(token, media_id, args.blurb, cat_id, figure_block, exif_footer)
     print(f"Fragment published (subscribers not emailed): {link}")
+
+    # 9. Clean up original — only runs if upload + post both succeeded (sys.exit on failure)
+    if args.keep:
+        print(f"Kept local file: {args.image} (--keep flag)")
+    else:
+        try:
+            os.remove(args.image)
+            print(f"Removed local file: {args.image}")
+        except OSError as e:
+            print(f"Warning: could not remove {args.image}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
